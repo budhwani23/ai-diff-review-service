@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: review
+      POSTGRES_USER: review
+      POSTGRES_PASSWORD: review
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U review -d review"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - review-data:/var/lib/postgresql/data
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://review:review@db:5432/review
+      MIGRATION_DATABASE_URL: postgresql+psycopg://review:review@db:5432/review
+      BEARER_TOKEN: local-development-token
+      CEREBRAS_API_KEY: ${CEREBRAS_API_KEY:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  review-data:
