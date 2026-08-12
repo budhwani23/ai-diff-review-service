@@ -68,11 +68,54 @@ jobs:
             --env Koyeb
             --env-var baseUrl="${{ env.BASE_URL }}"
             --env-var bearerToken="${{ secrets.BEARER_TOKEN }}"
-            --exclude-tags manual-stress,optional
+            --exclude-tags manual-stress,optional,cli-malformed-json
             --reporter-json ../../reports/core.json
             --reporter-junit ../../reports/core.xml
             --reporter-html ../../reports/core.html
             --reporter-skip-headers Authorization
+      - name: Verify malformed JSON contract
+        id: malformed_json
+        continue-on-error: true
+        env:
+          BEARER_TOKEN: ${{ secrets.BEARER_TOKEN }}
+        run: |
+          echo "Testing malformed JSON using raw curl..."
+
+          STATUS=$(curl \
+            --silent \
+            --show-error \
+            --output /tmp/malformed-response.json \
+            --write-out "%{http_code}" \
+            -X POST \
+            "$BASE_URL/v1/reviews" \
+            -H "Authorization: Bearer $BEARER_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary '{"diff":')
+
+          echo "HTTP status: $STATUS"
+          cat /tmp/malformed-response.json
+          echo
+
+          if [ "$STATUS" != "400" ]; then
+            echo "::error::Expected HTTP 400 for malformed JSON, got $STATUS"
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json
+
+          with open("/tmp/malformed-response.json", encoding="utf-8") as f:
+              body = json.load(f)
+
+          code = body.get("error", {}).get("code")
+
+          if code != "invalid_json":
+              raise SystemExit(
+                  f"Expected error.code='invalid_json', got {code!r}"
+              )
+
+          print("✓ malformed JSON returned 400 invalid_json")
+          PY
 
       - name: Run LLM provider test
         id: llm
