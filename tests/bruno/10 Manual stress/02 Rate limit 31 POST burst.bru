@@ -15,29 +15,29 @@ get {
 }
 
 script:pre-request {
-  const send = (config) => new Promise((resolve, reject) => {
-    bru.sendRequest(config, (err, response) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(response);
-      }
-    });
-  });
+  const axios = require("axios");
 
   const baseUrl = String(bru.getEnvVar("baseUrl"));
   const token = String(bru.getEnvVar("bearerToken"));
   const nonce = Date.now();
 
   /*
-   * Build all 31 requests first.
+   * Axios normally rejects HTTP 4xx/5xx responses.
    *
-   * IMPORTANT:
-   * Do not `await` inside this loop.
-   *
-   * Awaiting each request individually would make the test sequential.
-   * On a remote deployment such as Koyeb, that can take long enough for
-   * the token bucket to refill while the test is still running.
+   * For this test, HTTP 429 is an EXPECTED response.
+   * validateStatus makes every HTTP response available to us
+   * instead of throwing when the rate limiter returns 429.
+   */
+  const send = (config) => {
+    return axios({
+      ...config,
+      validateStatus: () => true
+    });
+  };
+
+  /*
+   * Create all 31 requests without awaiting inside the loop.
+   * This makes them run concurrently as one burst.
    */
   const requests = [];
 
@@ -67,25 +67,31 @@ script:pre-request {
   }
 
   /*
-   * Start/wait for the entire burst together.
+   * Wait for the entire burst.
    *
-   * Promise.all preserves the input array ordering, but we deliberately
-   * do NOT depend on which individual request receives the 429 because
-   * concurrent request arrival order is not guaranteed.
+   * HTTP 429 will NOT reject Promise.all because validateStatus
+   * accepts it as a normal HTTP response.
    */
   const responses = await Promise.all(requests);
 
   const results = responses.map((response, index) => ({
     index: index,
+
     status: response.status,
+
     jobId:
-      response.data && response.data.jobId
+      response.data &&
+      response.data.jobId
         ? response.data.jobId
         : null,
+
     code:
-      response.data && response.data.error
+      response.data &&
+      response.data.error &&
+      response.data.error.code
         ? response.data.error.code
         : null,
+
     retryAfter:
       response.headers
         ? (
@@ -96,13 +102,39 @@ script:pre-request {
         : null
   }));
 
-  bru.setVar("rateLimitResults", JSON.stringify(results));
+  bru.setVar(
+    "rateLimitResults",
+    JSON.stringify(results)
+  );
 
   /*
-   * Verify that GET requests remain usable after the POST rate limit
-   * has been exhausted.
+   * Log the distribution to GitHub Actions.
+   * This makes future failures much easier to diagnose.
+   */
+  const acceptedCount = results.filter(
+    (result) => result.status === 202
+  ).length;
+
+  const limitedCount = results.filter(
+    (result) => result.status === 429
+  ).length;
+
+  console.log(
+    "Rate-limit burst results: " +
+    acceptedCount +
+    " accepted, " +
+    limitedCount +
+    " rate-limited"
+  );
+
+  console.log(
+    JSON.stringify(results, null, 2)
+  );
+
+  /*
+   * Pick one successfully-created job.
    *
-   * The task specification says only POST /v1/reviews is rate limited.
+   * GET requests must not be affected by the POST rate limiter.
    */
   const accepted = results.find(
     (result) =>
@@ -113,7 +145,10 @@ script:pre-request {
   if (accepted) {
     const getResponse = await send({
       method: "GET",
-      url: baseUrl + "/v1/reviews/" + accepted.jobId,
+      url:
+        baseUrl +
+        "/v1/reviews/" +
+        accepted.jobId,
       headers: {
         "Authorization": "Bearer " + token
       },
@@ -135,13 +170,15 @@ script:pre-request {
 tests {
   test("31-request burst accepts 30 POSTs and rate limits exactly one", function () {
     /*
-     * The actual Bruno request for this test is GET /health,
-     * so it must still return 200.
+     * The actual Bruno request represented by this .bru file is
+     * GET /health.
      */
     expect(res.getStatus()).to.equal(200);
 
     const results = JSON.parse(
-      String(bru.getVar("rateLimitResults"))
+      String(
+        bru.getVar("rateLimitResults")
+      )
     );
 
     expect(results).to.have.length(31);
@@ -155,38 +192,48 @@ tests {
     );
 
     /*
-     * The token bucket starts with capacity 30.
-     * Therefore an immediate 31-request burst should produce:
+     * Token bucket capacity is 30.
      *
-     * 30 x HTTP 202
-     *  1 x HTTP 429
+     * Therefore:
+     *
+     * 30 requests -> HTTP 202
+     *  1 request  -> HTTP 429
      */
     expect(accepted).to.have.length(30);
     expect(limited).to.have.length(1);
 
     /*
-     * Every accepted submission should contain a jobId.
+     * Every successful submission must return a job ID.
      */
     expect(
-      accepted.every((result) => Boolean(result.jobId))
+      accepted.every(
+        (result) => Boolean(result.jobId)
+      )
     ).to.equal(true);
 
     /*
-     * Verify the required rate-limit error contract.
+     * Verify the required error envelope.
      */
-    expect(limited[0].code).to.equal("rate_limited");
+    expect(
+      limited[0].code
+    ).to.equal("rate_limited");
 
+    /*
+     * Retry-After must be present and positive.
+     */
     expect(
       Number(limited[0].retryAfter)
     ).to.be.at.least(1);
 
     /*
-     * GET /v1/reviews/{jobId} must NOT be affected by the
-     * POST submission rate limiter.
+     * GET endpoints must remain usable even after POST
+     * submission rate limiting has been exhausted.
      */
     expect(
       Number(
-        bru.getVar("protectedGetAfterRateLimitStatus")
+        bru.getVar(
+          "protectedGetAfterRateLimitStatus"
+        )
       )
     ).to.equal(200);
   });
