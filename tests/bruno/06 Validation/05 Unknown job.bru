@@ -1,0 +1,23 @@
+meta {
+  name: Unknown job
+  type: http
+  seq: 5
+  tags: [
+    validation
+  ]
+}
+get {
+  url: {{baseUrl}}/v1/reviews/bruno-job-that-does-not-exist
+  body: none
+  auth: bearer
+}
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+tests {
+  test("unknown job returns 404 not_found", function () {
+    expect(res.getStatus()).to.equal(404);
+    expect(res.getBody().error.code).to.equal("not_found");
+  });
+}

@@ -1,0 +1,36 @@
+meta {
+  name: Same key different body conflict
+  type: http
+  seq: 3
+  tags: [
+    idempotency
+  ]
+}
+
+post {
+  url: {{baseUrl}}/v1/reviews
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+headers {
+  Idempotency-Key: {{idempotencyKey}}
+}
+
+body:json {
+  {
+    "diff": "--- a/src/idempotency.js\n+++ b/src/idempotency.js\n@@ -0,0 +1 @@\n+console.log(\"idempotent\");\n",
+    "options": { "provider": "mock", "maxFindings": 1 }
+  }
+}
+
+tests {
+  test("same key with different raw body returns 409", function () {
+    expect(res.getStatus()).to.equal(409);
+    expect(res.getBody().error.code).to.equal("idempotency_conflict");
+  });
+}

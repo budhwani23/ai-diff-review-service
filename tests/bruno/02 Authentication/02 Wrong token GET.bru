@@ -1,0 +1,25 @@
+meta {
+  name: Wrong token GET
+  type: http
+  seq: 2
+  tags: [
+    auth
+  ]
+}
+
+get {
+  url: {{baseUrl}}/v1/reviews/anything
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: deliberately-wrong-token
+}
+
+tests {
+  test("protected GET rejects a wrong token", function () {
+    expect(res.getStatus()).to.equal(401);
+    expect(res.getBody().error.code).to.equal("unauthorized");
+  });
+}

@@ -1,0 +1,34 @@
+meta {
+  name: Poll oversized single file
+  type: http
+  seq: 4
+  tags: [
+    chunking
+  ]
+}
+get {
+  url: {{baseUrl}}/v1/reviews/{{singleHugeJobId}}
+  body: none
+  auth: bearer
+}
+auth:bearer {
+  token: {{bearerToken}}
+}
+script:post-response {
+  const body = res.getBody();
+  if (res.getStatus() === 200 && ["queued", "running"].includes(body.status)) {
+    const attempts = Number(bru.getVar("singleHugePollAttempts") || 0) + 1;
+    bru.setVar("singleHugePollAttempts", attempts);
+    if (attempts < 100) bru.runner.setNextRequest("Poll oversized single file");
+  }
+}
+tests {
+  test("one oversized file stays one chunk", function () {
+    const body = res.getBody();
+    expect(res.getStatus()).to.equal(200);
+    if (body.status !== "done") return;
+    expect(body.usage.chunks).to.equal(1);
+    expect(body.findings).to.have.length(1);
+    expect(body.findings[0].id).to.equal("MOCK-007:huge.ts:2");
+  });
+}

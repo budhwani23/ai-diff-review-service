@@ -1,0 +1,33 @@
+meta {
+  name: Payload over 1 MiB
+  type: http
+  seq: 7
+  tags: [
+    validation
+    payload
+  ]
+}
+
+post {
+  url: {{baseUrl}}/v1/reviews
+  body: json
+  auth: bearer
+}
+auth:bearer {
+  token: {{bearerToken}}
+}
+body:json {
+  { "diff": "placeholder" }
+}
+
+script:pre-request {
+  req.setHeader("Content-Type", "application/json");
+  req.setBody({ diff: "x".repeat(1048576) });
+}
+
+tests {
+  test("request body over 1 MiB returns 413", function () {
+    expect(res.getStatus()).to.equal(413);
+    expect(res.getBody().error.code).to.equal("payload_too_large");
+  });
+}

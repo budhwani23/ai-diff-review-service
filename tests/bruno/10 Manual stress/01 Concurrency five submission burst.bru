@@ -1,0 +1,57 @@
+meta {
+  name: Concurrency five submission burst
+  type: http
+  seq: 1
+  tags: [
+    manual-stress
+    concurrency
+  ]
+}
+
+get {
+  url: {{baseUrl}}/health
+  body: none
+  auth: none
+}
+
+script:pre-request {
+  const send = (config) => new Promise((resolve, reject) => {
+    bru.sendRequest(config, (err, response) => {
+      if (err) reject(err); else resolve(response);
+    });
+  });
+
+  const baseUrl = String(bru.getEnvVar("baseUrl"));
+  const token = String(bru.getEnvVar("bearerToken"));
+  const nonce = Date.now();
+
+  const submissions = await Promise.all(
+    [0, 1, 2, 3, 4].map((i) => send({
+      method: "POST",
+      url: baseUrl + "/v1/reviews",
+      headers: {
+        "Authorization": "Bearer " + token,
+        "Content-Type": "application/json"
+      },
+      data: {
+        diff: "--- a/src/concurrency-" + nonce + "-" + i + ".js\n+++ b/src/concurrency-" + nonce + "-" + i + ".js\n@@ -0,0 +1 @@\n+console.log(" + i + ");\n",
+        options: { provider: "mock", maxFindings: 100 }
+      },
+      timeout: 30000
+    }))
+  );
+
+  bru.setVar("concurrencyStatuses", JSON.stringify(submissions.map((r) => r.status)));
+  bru.setVar("concurrencyJobIds", JSON.stringify(submissions.map((r) => r.data.jobId)));
+}
+
+tests {
+  test("five simultaneous submissions are all accepted", function () {
+    expect(res.getStatus()).to.equal(200);
+    const statuses = JSON.parse(String(bru.getVar("concurrencyStatuses")));
+    expect(statuses).to.deep.equal([202, 202, 202, 202, 202]);
+    const ids = JSON.parse(String(bru.getVar("concurrencyJobIds")));
+    expect(ids).to.have.length(5);
+    expect(ids.every((id) => typeof id === "string" && id.length > 0)).to.equal(true);
+  });
+}

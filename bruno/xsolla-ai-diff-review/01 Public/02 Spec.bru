@@ -1,0 +1,26 @@
+meta {
+  name: Spec
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/spec
+  body: none
+  auth: none
+}
+
+tests {
+  test("advertises the required providers and limits", function () {
+    expect(res.getStatus()).to.equal(200);
+    const body = res.getBody();
+    expect(body.specVersion).to.equal("1.0");
+    expect(body.providers).to.deep.equal(["mock", "llm"]);
+    expect(body.limits).to.deep.equal({
+      maxPayloadBytes: 1048576,
+      chunkBytes: 65536,
+      maxConcurrentJobs: 4,
+      rateLimitPerMinute: 30
+    });
+  });
+}

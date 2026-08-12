@@ -1,0 +1,21 @@
+meta {
+  name: Health
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/health
+  body: none
+  auth: none
+}
+
+tests {
+  test("returns a healthy semantic-versioned service", function () {
+    expect(res.getStatus()).to.equal(200);
+    const body = res.getBody();
+    expect(body.status).to.equal("ok");
+    expect(body.version).to.match(/^\d+\.\d+\.\d+$/);
+    expect(body.uptimeSeconds).to.be.a("number");
+  });
+}

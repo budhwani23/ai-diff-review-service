@@ -1,0 +1,34 @@
+meta {
+  name: Poll mock review
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/reviews/{{jobId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+tests {
+  test("returns a known job", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(["queued", "running", "done"]).to.include(res.getBody().status);
+  });
+
+  test("a completed result has all deterministic rules", function () {
+    const body = res.getBody();
+    if (body.status !== "done") return;
+    const rules = [...new Set(body.findings.map((item) => item.ruleId))].sort();
+    expect(rules).to.deep.equal([
+      "MOCK-001", "MOCK-002", "MOCK-003", "MOCK-004", "MOCK-005",
+      "MOCK-006", "MOCK-007", "MOCK-008", "MOCK-INJ"
+    ]);
+    expect(body.usage.chunks).to.equal(1);
+    expect(body.usage.cacheHit).to.be.a("boolean");
+  });
+}

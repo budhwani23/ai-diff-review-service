@@ -1,0 +1,46 @@
+meta {
+  name: Repeat identical canonical request
+  type: http
+  seq: 3
+  tags: [
+    cache
+  ]
+}
+
+post {
+  url: {{baseUrl}}/v1/reviews
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+
+script:pre-request {
+  const marker = String(bru.getVar("cacheMarker"));
+  const diff = "--- a/src/cache.js\n+++ b/src/cache.js\n@@ -0,0 +1 @@\n+console.log(\"" + marker + "\");\n";
+  req.setBody({ diff, options: { provider: "mock", maxFindings: 100 } });
+}
+
+body:json {
+  {
+    "diff": "--- a/src/cache.js\n+++ b/src/cache.js\n@@ -0,0 +1 @@\n+console.log(\"{{cacheMarker}}\");\n",
+    "options": { "provider": "mock", "maxFindings": 100 }
+  }
+}
+
+script:post-response {
+  if (res.getStatus() === 202) {
+    bru.setVar("cacheRepeatJobId", res.getBody().jobId);
+    bru.setVar("cacheRepeatPollAttempts", 0);
+  }
+}
+
+tests {
+  test("cached repeat still returns a new accepted job", function () {
+    expect(res.getStatus()).to.equal(202);
+    expect(res.getBody().jobId).to.be.a("string");
+  });
+}

@@ -76,6 +76,16 @@ uv run pytest -q
 
 The tests cover parsing and new-file line tracking, all deterministic rules, file-boundary chunking, authentication, error taxonomy, idempotency, caching, ordered findings, SSE replay, and graceful LLM failure.
 
+### Bruno collection
+
+A ready-to-import collection is available at
+[`bruno/xsolla-ai-diff-review`](bruno/xsolla-ai-diff-review). Open that directory
+in Bruno, select `Local` or `Koyeb`, and set `bearerToken` in Bruno's environment
+editor. The committed environment files contain placeholders only; never commit
+the real bearer token. The collection includes public discovery, authentication,
+deterministic mock review, polling, SSE, idempotency, caching, validation, and
+Cerebras requests.
+
 ## Production process
 
 Run one application process so the declared four-worker queue and token-bucket rate limit have one authority:

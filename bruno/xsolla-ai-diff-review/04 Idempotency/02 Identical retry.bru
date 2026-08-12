@@ -1,0 +1,33 @@
+meta {
+  name: Identical idempotent retry
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/reviews
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+headers {
+  Idempotency-Key: bruno-fixed-idempotency-example-v1
+}
+
+body:json {
+  {
+    "diff": "--- a/src/idempotency.js\n+++ b/src/idempotency.js\n@@ -0,0 +1 @@\n+console.log(\"idempotent\");\n",
+    "options": { "provider": "mock", "maxFindings": 100 }
+  }
+}
+
+tests {
+  test("returns the original job ID", function () {
+    expect(res.getStatus()).to.equal(202);
+    expect(res.getBody().jobId).to.equal(bru.getVar("idempotentJobId"));
+  });
+}

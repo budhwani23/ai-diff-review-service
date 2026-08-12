@@ -1,0 +1,33 @@
+meta {
+  name: Spec
+  type: http
+  seq: 2
+  tags: [
+    smoke
+    public
+  ]
+}
+
+get {
+  url: {{baseUrl}}/spec
+  body: none
+  auth: none
+}
+
+tests {
+  test("spec is public", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("spec exactly declares the implemented limits", function () {
+    const body = res.getBody();
+    expect(body.specVersion).to.equal("1.0");
+    expect(body.providers).to.deep.equal(["mock", "llm"]);
+    expect(body.limits).to.deep.equal({
+      maxPayloadBytes: 1048576,
+      chunkBytes: 65536,
+      maxConcurrentJobs: 4,
+      rateLimitPerMinute: 30
+    });
+  });
+}

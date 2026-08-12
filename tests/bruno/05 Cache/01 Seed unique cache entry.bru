@@ -1,0 +1,45 @@
+meta {
+  name: Seed unique cache entry
+  type: http
+  seq: 1
+  tags: [
+    cache
+  ]
+}
+
+post {
+  url: {{baseUrl}}/v1/reviews
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+script:pre-request {
+  const marker = "cache-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+  bru.setVar("cacheMarker", marker);
+  const diff = "--- a/src/cache.js\n+++ b/src/cache.js\n@@ -0,0 +1 @@\n+console.log(\"" + marker + "\");\n";
+  req.setBody({ diff, options: { provider: "mock", maxFindings: 100 } });
+}
+
+body:json {
+  {
+    "diff": "--- a/src/cache.js\n+++ b/src/cache.js\n@@ -0,0 +1 @@\n+console.log(\"{{cacheMarker}}\");\n",
+    "options": { "provider": "mock", "maxFindings": 100 }
+  }
+}
+
+script:post-response {
+  if (res.getStatus() === 202) {
+    bru.setVar("cacheSeedJobId", res.getBody().jobId);
+    bru.setVar("cacheSeedPollAttempts", 0);
+  }
+}
+
+tests {
+  test("cache seed is accepted", function () {
+    expect(res.getStatus()).to.equal(202);
+  });
+}

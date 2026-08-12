@@ -1,0 +1,26 @@
+meta {
+  name: Missing diff
+  type: http
+  seq: 4
+  tags: [
+    validation
+  ]
+}
+post {
+  url: {{baseUrl}}/v1/reviews
+  body: json
+  auth: bearer
+}
+auth:bearer {
+  token: {{bearerToken}}
+}
+body:json {
+  { "options": { "provider": "mock" } }
+}
+
+tests {
+  test("missing diff returns 422 invalid_diff", function () {
+    expect(res.getStatus()).to.equal(422);
+    expect(res.getBody().error.code).to.equal("invalid_diff");
+  });
+}

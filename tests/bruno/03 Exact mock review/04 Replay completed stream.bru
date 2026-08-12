@@ -1,0 +1,30 @@
+meta {
+  name: Replay completed stream
+  type: http
+  seq: 4
+  tags: [
+    mock
+    sse
+  ]
+}
+
+get {
+  url: {{baseUrl}}/v1/reviews/{{mockJobId}}/stream
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+headers {
+  Accept: text/event-stream
+}
+
+tests {
+  test("finished SSE replay is identical", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(String(res.getBody())).to.equal(String(bru.getVar("firstSseBody")));
+  });
+}

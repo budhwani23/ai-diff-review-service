@@ -1,0 +1,29 @@
+meta {
+  name: Unknown fields ignored
+  type: http
+  seq: 6
+  tags: [
+    validation
+  ]
+}
+post {
+  url: {{baseUrl}}/v1/reviews
+  body: json
+  auth: bearer
+}
+auth:bearer {
+  token: {{bearerToken}}
+}
+body:json {
+  {
+    "diff": "--- a/x.js\n+++ b/x.js\n@@ -0,0 +1 @@\n+console.log(1);\n",
+    "options": { "provider": "mock", "maxFindings": 1, "anotherUnknown": 123 },
+    "topLevelUnknown": "ignored"
+  }
+}
+
+tests {
+  test("unknown body fields are ignored", function () {
+    expect(res.getStatus()).to.equal(202);
+  });
+}

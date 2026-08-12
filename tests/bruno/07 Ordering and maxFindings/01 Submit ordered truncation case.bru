@@ -1,0 +1,31 @@
+meta {
+  name: Submit ordered truncation case
+  type: http
+  seq: 1
+  tags: [
+    ordering
+  ]
+}
+post {
+  url: {{baseUrl}}/v1/reviews
+  body: json
+  auth: bearer
+}
+auth:bearer {
+  token: {{bearerToken}}
+}
+body:json {
+  {
+    "diff": "diff --git a/z.ts b/z.ts\n--- a/z.ts\n+++ b/z.ts\n@@ -0,0 +1,1 @@\n+console.log(\"z\");\ndiff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+console.log(1); // TODO\n+console.log(2);\n",
+    "options": { "provider": "mock", "maxFindings": 2 }
+  }
+}
+script:post-response {
+  if (res.getStatus() === 202) {
+    bru.setVar("orderedJobId", res.getBody().jobId);
+    bru.setVar("orderedPollAttempts", 0);
+  }
+}
+tests {
+  test("ordered case accepted", function () { expect(res.getStatus()).to.equal(202); });
+}

@@ -1,0 +1,32 @@
+meta {
+  name: Seed cache
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/v1/reviews
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+body:json {
+  {
+    "diff": "--- a/src/cache.js\n+++ b/src/cache.js\n@@ -0,0 +1 @@\n+console.log(\"cache example\");\n",
+    "options": { "provider": "mock", "maxFindings": 100 }
+  }
+}
+
+script:post-response {
+  if (res.getStatus() === 202) bru.setVar("cacheSeedJobId", res.getBody().jobId);
+}
+
+tests {
+  test("accepts the cache seed", function () {
+    expect(res.getStatus()).to.equal(202);
+  });
+}

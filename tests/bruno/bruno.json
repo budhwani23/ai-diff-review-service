@@ -1,0 +1,6 @@
+{
+  "version": "1",
+  "name": "Xsolla AI Diff Review - Complete Manual Tests",
+  "type": "collection",
+  "ignore": ["node_modules", ".git", ".env"]
+}

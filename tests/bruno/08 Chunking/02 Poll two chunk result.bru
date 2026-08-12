@@ -1,0 +1,36 @@
+meta {
+  name: Poll two chunk result
+  type: http
+  seq: 2
+  tags: [
+    chunking
+  ]
+}
+get {
+  url: {{baseUrl}}/v1/reviews/{{chunkJobId}}
+  body: none
+  auth: bearer
+}
+auth:bearer {
+  token: {{bearerToken}}
+}
+script:post-response {
+  const body = res.getBody();
+  if (res.getStatus() === 200 && ["queued", "running"].includes(body.status)) {
+    const attempts = Number(bru.getVar("chunkPollAttempts") || 0) + 1;
+    bru.setVar("chunkPollAttempts", attempts);
+    if (attempts < 100) bru.runner.setNextRequest("Poll two chunk result");
+  }
+}
+tests {
+  test("file boundary chunking reports two chunks and global order", function () {
+    const body = res.getBody();
+    expect(res.getStatus()).to.equal(200);
+    if (body.status !== "done") return;
+    expect(body.usage.chunks).to.equal(2);
+    expect(body.findings.map((f) => [f.path, f.line, f.ruleId])).to.deep.equal([
+      ["a.ts", 2, "MOCK-007"],
+      ["z.ts", 2, "MOCK-007"]
+    ]);
+  });
+}

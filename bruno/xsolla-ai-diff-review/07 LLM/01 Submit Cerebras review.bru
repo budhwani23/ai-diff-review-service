@@ -1,0 +1,32 @@
+meta {
+  name: Submit Cerebras review
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/v1/reviews
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+body:json {
+  {
+    "diff": "diff --git a/src/llm.py b/src/llm.py\nnew file mode 100644\n--- /dev/null\n+++ b/src/llm.py\n@@ -0,0 +1,2 @@\n+password = \"visible-secret-value\"\n+eval(user_input)\n",
+    "options": { "provider": "llm", "maxFindings": 10 }
+  }
+}
+
+script:post-response {
+  if (res.getStatus() === 202) bru.setVar("llmJobId", res.getBody().jobId);
+}
+
+tests {
+  test("accepts the LLM review asynchronously", function () {
+    expect(res.getStatus()).to.equal(202);
+  });
+}

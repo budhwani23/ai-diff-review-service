@@ -1,0 +1,236 @@
+name: Xsolla Cloud API Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_llm:
+        description: "Run the real LLM provider test"
+        required: true
+        default: true
+        type: boolean
+      run_stress:
+        description: "Run concurrency and rate-limit tests"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  BASE_URL: https://notable-lu-bnb-b26373f0.koyeb.app
+
+jobs:
+  cloud-tests:
+    name: Test deployed Koyeb service
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Verify BEARER_TOKEN secret exists
+        env:
+          BEARER_TOKEN: ${{ secrets.BEARER_TOKEN }}
+        run: |
+          if [ -z "$BEARER_TOKEN" ]; then
+            echo "::error::Repository secret BEARER_TOKEN is missing. Add it under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+      - name: Wake deployment and verify public health endpoint
+        run: |
+          echo "Checking $BASE_URL/health"
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 12 \
+            --retry-all-errors \
+            --retry-delay 5 \
+            --connect-timeout 10 \
+            --max-time 20 \
+            "$BASE_URL/health"
+          echo
+
+      # Deterministic contract tests. LLM and stress probes are intentionally
+      # excluded here so they get their own result/report and rate-limit budget.
+      - name: Run deterministic Bruno contract tests
+        id: core
+        continue-on-error: true
+        uses: usebruno/bruno-cli-action@v1
+        with:
+          bru-version: '4.0.0'
+          working-directory: tests/bruno
+          command: >
+            run -r
+            --env Koyeb
+            --env-var baseUrl="${{ env.BASE_URL }}"
+            --env-var bearerToken="${{ secrets.BEARER_TOKEN }}"
+            --exclude-tags manual-stress,optional
+            --reporter-json ../../reports/core.json
+            --reporter-junit ../../reports/core.xml
+            --reporter-html ../../reports/core.html
+            --reporter-skip-headers Authorization
+
+      - name: Run LLM provider test
+        id: llm
+        if: ${{ inputs.run_llm }}
+        continue-on-error: true
+        uses: usebruno/bruno-cli-action@v1
+        with:
+          bru-version: '4.0.0'
+          working-directory: tests/bruno
+          command: >
+            run -r
+            --env Koyeb
+            --env-var baseUrl="${{ env.BASE_URL }}"
+            --env-var bearerToken="${{ secrets.BEARER_TOKEN }}"
+            --tags llm
+            --reporter-json ../../reports/llm.json
+            --reporter-junit ../../reports/llm.xml
+            --reporter-html ../../reports/llm.html
+            --reporter-skip-headers Authorization
+
+      - name: Run five-job concurrency probe
+        id: concurrency
+        if: ${{ inputs.run_stress }}
+        continue-on-error: true
+        uses: usebruno/bruno-cli-action@v1
+        with:
+          bru-version: '4.0.0'
+          working-directory: tests/bruno
+          command: >
+            run "10 Manual stress/01 Concurrency five submission burst.bru"
+            --env Koyeb
+            --env-var baseUrl="${{ env.BASE_URL }}"
+            --env-var bearerToken="${{ secrets.BEARER_TOKEN }}"
+            --reporter-json ../../reports/concurrency.json
+            --reporter-junit ../../reports/concurrency.xml
+            --reporter-html ../../reports/concurrency.html
+            --reporter-skip-headers Authorization
+
+      # The contract guarantees 30 submissions/minute. Core + concurrency tests
+      # already consume POSTs, so wait for a clean limiter window before checking
+      # that requests 1-30 succeed and request 31 returns 429.
+      - name: Cool down POST rate limiter
+        if: ${{ inputs.run_stress && !cancelled() }}
+        run: |
+          echo "Waiting 70 seconds for a clean rate-limit window..."
+          sleep 70
+
+      - name: Run 31-request rate-limit probe
+        id: rate_limit
+        if: ${{ inputs.run_stress }}
+        continue-on-error: true
+        uses: usebruno/bruno-cli-action@v1
+        with:
+          bru-version: '4.0.0'
+          working-directory: tests/bruno
+          command: >
+            run "10 Manual stress/02 Rate limit 31 POST burst.bru"
+            --env Koyeb
+            --env-var baseUrl="${{ env.BASE_URL }}"
+            --env-var bearerToken="${{ secrets.BEARER_TOKEN }}"
+            --reporter-json ../../reports/rate-limit.json
+            --reporter-junit ../../reports/rate-limit.xml
+            --reporter-html ../../reports/rate-limit.html
+            --reporter-skip-headers Authorization
+
+      - name: Write test summary
+        if: always()
+        env:
+          CORE_EXIT: ${{ steps.core.outputs.exit-code }}
+          CORE_PASSED: ${{ steps.core.outputs.passed }}
+          CORE_FAILED: ${{ steps.core.outputs.failed }}
+          CORE_TOTAL: ${{ steps.core.outputs.total }}
+          LLM_EXIT: ${{ steps.llm.outputs.exit-code }}
+          LLM_PASSED: ${{ steps.llm.outputs.passed }}
+          LLM_FAILED: ${{ steps.llm.outputs.failed }}
+          LLM_TOTAL: ${{ steps.llm.outputs.total }}
+          CONCURRENCY_EXIT: ${{ steps.concurrency.outputs.exit-code }}
+          CONCURRENCY_PASSED: ${{ steps.concurrency.outputs.passed }}
+          CONCURRENCY_FAILED: ${{ steps.concurrency.outputs.failed }}
+          CONCURRENCY_TOTAL: ${{ steps.concurrency.outputs.total }}
+          RATE_EXIT: ${{ steps.rate_limit.outputs.exit-code }}
+          RATE_PASSED: ${{ steps.rate_limit.outputs.passed }}
+          RATE_FAILED: ${{ steps.rate_limit.outputs.failed }}
+          RATE_TOTAL: ${{ steps.rate_limit.outputs.total }}
+          RUN_LLM: ${{ inputs.run_llm }}
+          RUN_STRESS: ${{ inputs.run_stress }}
+        run: |
+          status() {
+            local enabled="$1"
+            local exit_code="$2"
+            if [ "$enabled" != "true" ]; then
+              echo "SKIPPED"
+            elif [ "$exit_code" = "0" ]; then
+              echo "PASS"
+            else
+              echo "FAIL"
+            fi
+          }
+
+          {
+            echo "## Xsolla deployed API test results"
+            echo
+            echo "Target: \`$BASE_URL\`"
+            echo
+            echo "| Suite | Status | Passed | Failed | Total | Exit |"
+            echo "|---|---:|---:|---:|---:|---:|"
+            echo "| Deterministic contract | $(status true "${CORE_EXIT:-}") | ${CORE_PASSED:-0} | ${CORE_FAILED:-0} | ${CORE_TOTAL:-0} | ${CORE_EXIT:-n/a} |"
+            echo "| LLM provider | $(status "$RUN_LLM" "${LLM_EXIT:-}") | ${LLM_PASSED:-0} | ${LLM_FAILED:-0} | ${LLM_TOTAL:-0} | ${LLM_EXIT:-n/a} |"
+            echo "| Concurrency | $(status "$RUN_STRESS" "${CONCURRENCY_EXIT:-}") | ${CONCURRENCY_PASSED:-0} | ${CONCURRENCY_FAILED:-0} | ${CONCURRENCY_TOTAL:-0} | ${CONCURRENCY_EXIT:-n/a} |"
+            echo "| Rate limit | $(status "$RUN_STRESS" "${RATE_EXIT:-}") | ${RATE_PASSED:-0} | ${RATE_FAILED:-0} | ${RATE_TOTAL:-0} | ${RATE_EXIT:-n/a} |"
+            echo
+            echo "Download the uploaded \`bruno-cloud-test-reports\` artifact for HTML, JSON, and JUnit details."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Bruno reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: bruno-cloud-test-reports-${{ github.run_id }}
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Final pass/fail gate
+        if: always()
+        env:
+          CORE_EXIT: ${{ steps.core.outputs.exit-code }}
+          LLM_EXIT: ${{ steps.llm.outputs.exit-code }}
+          CONCURRENCY_EXIT: ${{ steps.concurrency.outputs.exit-code }}
+          RATE_EXIT: ${{ steps.rate_limit.outputs.exit-code }}
+          RUN_LLM: ${{ inputs.run_llm }}
+          RUN_STRESS: ${{ inputs.run_stress }}
+        run: |
+          failed=0
+
+          if [ "${CORE_EXIT:-1}" != "0" ]; then
+            echo "::error::Deterministic contract suite failed."
+            failed=1
+          fi
+
+          if [ "$RUN_LLM" = "true" ] && [ "${LLM_EXIT:-1}" != "0" ]; then
+            echo "::error::LLM provider suite failed."
+            failed=1
+          fi
+
+          if [ "$RUN_STRESS" = "true" ] && [ "${CONCURRENCY_EXIT:-1}" != "0" ]; then
+            echo "::error::Concurrency probe failed."
+            failed=1
+          fi
+
+          if [ "$RUN_STRESS" = "true" ] && [ "${RATE_EXIT:-1}" != "0" ]; then
+            echo "::error::Rate-limit probe failed."
+            failed=1
+          fi
+
+          if [ "$failed" -ne 0 ]; then
+            echo "One or more enabled suites failed. Open the workflow summary and download the reports artifact."
+            exit 1
+          fi
+
+          echo "All enabled cloud test suites passed."

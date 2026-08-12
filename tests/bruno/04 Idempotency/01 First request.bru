@@ -1,0 +1,44 @@
+meta {
+  name: First idempotent request
+  type: http
+  seq: 1
+  tags: [
+    idempotency
+  ]
+}
+
+post {
+  url: {{baseUrl}}/v1/reviews
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+script:pre-request {
+  const key = "bruno-idem-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+  bru.setVar("idempotencyKey", key);
+}
+
+headers {
+  Idempotency-Key: {{idempotencyKey}}
+}
+
+body:json {
+  {
+    "diff": "--- a/src/idempotency.js\n+++ b/src/idempotency.js\n@@ -0,0 +1 @@\n+console.log(\"idempotent\");\n",
+    "options": { "provider": "mock", "maxFindings": 100 }
+  }
+}
+
+script:post-response {
+  if (res.getStatus() === 202) bru.setVar("idempotentJobId", res.getBody().jobId);
+}
+
+tests {
+  test("first idempotent request is accepted", function () {
+    expect(res.getStatus()).to.equal(202);
+  });
+}

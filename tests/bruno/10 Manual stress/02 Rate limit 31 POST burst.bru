@@ -1,0 +1,76 @@
+meta {
+  name: Rate limit 31 POST burst
+  type: http
+  seq: 2
+  tags: [
+    manual-stress
+    rate-limit
+  ]
+}
+
+get {
+  url: {{baseUrl}}/health
+  body: none
+  auth: none
+}
+
+script:pre-request {
+  const send = (config) => new Promise((resolve, reject) => {
+    bru.sendRequest(config, (err, response) => {
+      if (err) reject(err); else resolve(response);
+    });
+  });
+
+  const baseUrl = String(bru.getEnvVar("baseUrl"));
+  const token = String(bru.getEnvVar("bearerToken"));
+  const nonce = Date.now();
+  const results = [];
+
+  for (let i = 0; i < 31; i++) {
+    const response = await send({
+      method: "POST",
+      url: baseUrl + "/v1/reviews",
+      headers: {
+        "Authorization": "Bearer " + token,
+        "Content-Type": "application/json"
+      },
+      data: {
+        diff: "--- a/src/rate-" + nonce + "-" + i + ".js\n+++ b/src/rate-" + nonce + "-" + i + ".js\n@@ -0,0 +1 @@\n+console.log(" + i + ");\n",
+        options: { provider: "mock", maxFindings: 100 }
+      },
+      timeout: 30000
+    });
+    results.push({
+      status: response.status,
+      jobId: response.data && response.data.jobId ? response.data.jobId : null,
+      code: response.data && response.data.error ? response.data.error.code : null,
+      retryAfter: response.headers ? (response.headers["retry-after"] || response.headers["Retry-After"] || null) : null
+    });
+  }
+
+  bru.setVar("rateLimitResults", JSON.stringify(results));
+
+  const accepted = results.find((r) => r.status === 202 && r.jobId);
+  if (accepted) {
+    const getResponse = await send({
+      method: "GET",
+      url: baseUrl + "/v1/reviews/" + accepted.jobId,
+      headers: { "Authorization": "Bearer " + token },
+      timeout: 30000
+    });
+    bru.setVar("protectedGetAfterRateLimitStatus", getResponse.status);
+  }
+}
+
+tests {
+  test("30 immediate POSTs succeed and the 31st is rate limited", function () {
+    expect(res.getStatus()).to.equal(200);
+    const results = JSON.parse(String(bru.getVar("rateLimitResults")));
+    expect(results).to.have.length(31);
+    expect(results.slice(0, 30).every((r) => r.status === 202)).to.equal(true);
+    expect(results[30].status).to.equal(429);
+    expect(results[30].code).to.equal("rate_limited");
+    expect(Number(results[30].retryAfter)).to.be.at.least(1);
+    expect(Number(bru.getVar("protectedGetAfterRateLimitStatus"))).to.equal(200);
+  });
+}

@@ -1,0 +1,26 @@
+meta {
+  name: Empty diff
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/reviews
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+body:json {
+  { "diff": "" }
+}
+
+tests {
+  test("uses the invalid_diff error envelope", function () {
+    expect(res.getStatus()).to.equal(422);
+    expect(res.getBody().error.code).to.equal("invalid_diff");
+  });
+}

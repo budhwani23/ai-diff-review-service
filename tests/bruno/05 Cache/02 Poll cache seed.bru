@@ -1,0 +1,37 @@
+meta {
+  name: Poll cache seed
+  type: http
+  seq: 2
+  tags: [
+    cache
+  ]
+}
+
+get {
+  url: {{baseUrl}}/v1/reviews/{{cacheSeedJobId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+script:post-response {
+  const body = res.getBody();
+  if (res.getStatus() === 200 && ["queued", "running"].includes(body.status)) {
+    const attempts = Number(bru.getVar("cacheSeedPollAttempts") || 0) + 1;
+    bru.setVar("cacheSeedPollAttempts", attempts);
+    if (attempts < 100) bru.runner.setNextRequest("Poll cache seed");
+  }
+  if (res.getStatus() === 200 && body.status === "done") {
+    bru.setVar("cacheSeedFindings", JSON.stringify(body.findings));
+  }
+}
+
+tests {
+  test("seed reaches a valid state", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(["queued", "running", "done"]).to.include(res.getBody().status);
+  });
+}

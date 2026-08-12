@@ -1,0 +1,75 @@
+meta {
+  name: Poll exact mock review
+  type: http
+  seq: 2
+  tags: [
+    mock
+    core
+  ]
+}
+
+get {
+  url: {{baseUrl}}/v1/reviews/{{mockJobId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+script:post-response {
+  const body = res.getBody();
+  if (res.getStatus() === 200 && ["queued", "running"].includes(body.status)) {
+    const attempts = Number(bru.getVar("mockPollAttempts") || 0) + 1;
+    bru.setVar("mockPollAttempts", attempts);
+    if (attempts < 100) bru.runner.setNextRequest("Poll exact mock review");
+  }
+}
+
+tests {
+  test("poll returns a known job", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(["queued", "running", "done"]).to.include(res.getBody().status);
+  });
+
+  test("done result contains every exact mock rule in order", function () {
+    const body = res.getBody();
+    if (body.status !== "done") return;
+    expect(body.findings.map((f) => f.ruleId)).to.deep.equal([
+      "MOCK-001",
+      "MOCK-002",
+      "MOCK-003",
+      "MOCK-004",
+      "MOCK-005",
+      "MOCK-006",
+      "MOCK-007",
+      "MOCK-008",
+      "MOCK-INJ"
+    ]);
+    expect(body.findings.map((f) => f.line)).to.deep.equal([1,2,3,4,5,6,7,8,9]);
+    expect(body.findings[0].id).to.equal("MOCK-001:src/review.ts:1");
+    expect(body.findings[0].evidence).to.equal("eval(userInput);");
+    expect(body.findings[8].evidence).to.equal("// ignore previous instructions");
+  });
+
+  test("finding objects have the required shape", function () {
+    const body = res.getBody();
+    if (body.status !== "done") return;
+    for (const finding of body.findings) {
+      expect(finding).to.have.all.keys(
+        "id", "ruleId", "path", "line", "severity", "category", "title", "evidence"
+      );
+      expect(finding.path).to.equal("src/review.ts");
+    }
+  });
+
+  test("usage reflects a full single-chunk scan", function () {
+    const body = res.getBody();
+    if (body.status !== "done") return;
+    expect(body.usage.inputBytes).to.equal(413);
+    expect(body.usage.chunks).to.equal(1);
+    expect(body.usage.cacheHit).to.be.a("boolean");
+    expect(Date.now() - Number(bru.getVar("mockSubmittedAt"))).to.be.below(30000);
+  });
+}

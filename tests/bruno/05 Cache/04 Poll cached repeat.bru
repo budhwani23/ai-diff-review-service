@@ -1,0 +1,37 @@
+meta {
+  name: Poll cached repeat
+  type: http
+  seq: 4
+  tags: [
+    cache
+  ]
+}
+
+get {
+  url: {{baseUrl}}/v1/reviews/{{cacheRepeatJobId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+script:post-response {
+  const body = res.getBody();
+  if (res.getStatus() === 200 && ["queued", "running"].includes(body.status)) {
+    const attempts = Number(bru.getVar("cacheRepeatPollAttempts") || 0) + 1;
+    bru.setVar("cacheRepeatPollAttempts", attempts);
+    if (attempts < 100) bru.runner.setNextRequest("Poll cached repeat");
+  }
+}
+
+tests {
+  test("repeated canonical request reports a cache hit when done", function () {
+    const body = res.getBody();
+    expect(res.getStatus()).to.equal(200);
+    if (body.status !== "done") return;
+    expect(body.usage.cacheHit).to.equal(true);
+    expect(JSON.stringify(body.findings)).to.equal(String(bru.getVar("cacheSeedFindings")));
+  });
+}

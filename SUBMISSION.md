@@ -50,12 +50,23 @@ I also rejected using an in-memory queue and SQLite for deployment. They simplif
 - Run fault-injection tests against worker termination and Supabase connectivity.
 - Add model-quality evaluation fixtures and provider cost/token telemetry for the LLM path.
 
-## Deployment verification
+## Deployment and remote verification
 
-To be completed immediately before submission:
+- Public base URL: `https://notable-lu-bnb-b26373f0.koyeb.app`
+- Health endpoint: `https://notable-lu-bnb-b26373f0.koyeb.app/health`
+- Repository: `https://github.com/budhwani23/ai-diff-review-service`
+- Public Docker image: `docker.io/kill3rstabs/xsolla-review:1.0.0`
+- Image digest: `sha256:9a48a797accaf85f0c0f4d2591851d70778fce751842c1bcfa0132d857852cf0`
+- Runtime: one Koyeb FastAPI replica backed by Supabase PostgreSQL; credentials and the bearer token are injected as deployment secrets and are not stored in the repository or image.
 
-- Public base URL: `PENDING`
-- Repository URL: `PENDING`
-- Remote mock smoke test: `PENDING`
-- Remote Cerebras success test: `PENDING`
-- Monitoring confirmed for the full 96-hour window: `PENDING`
+The repository's `scripts/remote_smoke.py` suite passed against the public URL. It verified the public health/spec responses, bearer authentication, asynchronous submission and polling, exact deterministic mock findings, raw-byte idempotency, cross-key caching, and byte-identical replay of a completed SSE stream.
+
+Additional black-box checks against the public deployment passed:
+
+- malformed JSON returned the required `400 invalid_json` envelope;
+- an unknown job returned `404 not_found`;
+- a 150 KB three-file diff was split into three file-boundary chunks, preserved all three expected findings, and completed in 5.65 seconds;
+- the configured Cerebras `llm` provider completed successfully with structured findings in 5.43 seconds; and
+- unauthenticated `/v1` access returned `401 unauthorized`, while `/health` returned `200` over HTTPS in approximately 0.15 seconds.
+
+The 96-hour availability window begins when I send the submission email. The service is live before submission, exposes a public `/health` endpoint, and will be monitored throughout that window. The bearer token is intentionally supplied only in the submission email.

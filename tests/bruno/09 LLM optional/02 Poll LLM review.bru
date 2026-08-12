@@ -1,0 +1,36 @@
+meta {
+  name: Poll LLM review
+  type: http
+  seq: 2
+  tags: [
+    llm
+    optional
+  ]
+}
+get {
+  url: {{baseUrl}}/v1/reviews/{{llmJobId}}
+  body: none
+  auth: bearer
+}
+auth:bearer {
+  token: {{bearerToken}}
+}
+script:post-response {
+  const body = res.getBody();
+  if (res.getStatus() === 200 && ["queued", "running"].includes(body.status)) {
+    const attempts = Number(bru.getVar("llmPollAttempts") || 0) + 1;
+    bru.setVar("llmPollAttempts", attempts);
+    if (attempts < 120) bru.runner.setNextRequest("Poll LLM review");
+  }
+}
+tests {
+  test("LLM job reaches done or graceful failed", function () {
+    const body = res.getBody();
+    expect(res.getStatus()).to.equal(200);
+    expect(["queued", "running", "done", "failed"]).to.include(body.status);
+    if (body.status === "failed") {
+      expect(body.error.code).to.equal("internal");
+      expect(body.error.message).to.be.a("string").and.not.empty;
+    }
+  });
+}

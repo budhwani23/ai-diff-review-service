@@ -1,0 +1,43 @@
+meta {
+  name: Stream completed job
+  type: http
+  seq: 3
+  tags: [
+    mock
+    sse
+  ]
+}
+
+get {
+  url: {{baseUrl}}/v1/reviews/{{mockJobId}}/stream
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+headers {
+  Accept: text/event-stream
+}
+
+script:post-response {
+  if (res.getStatus() === 200) {
+    bru.setVar("firstSseBody", String(res.getBody()));
+  }
+}
+
+tests {
+  test("stream is SSE", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getHeader("content-type")).to.include("text/event-stream");
+  });
+
+  test("finished stream contains status, nine findings and done", function () {
+    const text = String(res.getBody());
+    expect(text).to.include("event: status");
+    expect((text.match(/event: finding/g) || []).length).to.equal(9);
+    expect(text).to.include("event: done");
+  });
+}

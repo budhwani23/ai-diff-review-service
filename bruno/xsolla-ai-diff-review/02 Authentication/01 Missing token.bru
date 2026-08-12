@@ -1,0 +1,18 @@
+meta {
+  name: Missing token
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/reviews/does-not-matter
+  body: none
+  auth: none
+}
+
+tests {
+  test("rejects a missing bearer token", function () {
+    expect(res.getStatus()).to.equal(401);
+    expect(res.getBody().error.code).to.equal("unauthorized");
+  });
+}

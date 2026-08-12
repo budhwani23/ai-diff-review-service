@@ -1,0 +1,33 @@
+meta {
+  name: Malformed JSON
+  type: http
+  seq: 1
+  tags: [
+    validation
+  ]
+}
+
+post {
+  url: {{baseUrl}}/v1/reviews
+  body: text
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:text {
+  {"diff":
+}
+
+tests {
+  test("malformed JSON returns 400 invalid_json", function () {
+    expect(res.getStatus()).to.equal(400);
+    expect(res.getBody().error.code).to.equal("invalid_json");
+  });
+}

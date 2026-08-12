@@ -1,0 +1,36 @@
+meta {
+  name: Submit oversized single file
+  type: http
+  seq: 3
+  tags: [
+    chunking
+  ]
+}
+post {
+  url: {{baseUrl}}/v1/reviews
+  body: json
+  auth: bearer
+}
+auth:bearer {
+  token: {{bearerToken}}
+}
+body:json {
+  { "diff": "placeholder" }
+}
+script:pre-request {
+  const padding = "x".repeat(90000);
+  const diff =
+    "diff --git a/huge.ts b/huge.ts\n--- a/huge.ts\n+++ b/huge.ts\n@@ -0,0 +1,2 @@\n" +
+    "+const padding = \"" + padding + "\";\n" +
+    "+console.log(\"huge\");\n";
+  req.setBody({ diff, options: { provider: "mock", maxFindings: 100 } });
+}
+script:post-response {
+  if (res.getStatus() === 202) {
+    bru.setVar("singleHugeJobId", res.getBody().jobId);
+    bru.setVar("singleHugePollAttempts", 0);
+  }
+}
+tests {
+  test("single >64KiB file is accepted", function () { expect(res.getStatus()).to.equal(202); });
+}

@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "Xsolla AI Diff Review",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

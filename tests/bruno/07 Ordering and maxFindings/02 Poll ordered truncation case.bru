@@ -1,0 +1,36 @@
+meta {
+  name: Poll ordered truncation case
+  type: http
+  seq: 2
+  tags: [
+    ordering
+  ]
+}
+get {
+  url: {{baseUrl}}/v1/reviews/{{orderedJobId}}
+  body: none
+  auth: bearer
+}
+auth:bearer {
+  token: {{bearerToken}}
+}
+script:post-response {
+  const body = res.getBody();
+  if (res.getStatus() === 200 && ["queued", "running"].includes(body.status)) {
+    const attempts = Number(bru.getVar("orderedPollAttempts") || 0) + 1;
+    bru.setVar("orderedPollAttempts", attempts);
+    if (attempts < 100) bru.runner.setNextRequest("Poll ordered truncation case");
+  }
+}
+tests {
+  test("maxFindings truncates only after global ordering", function () {
+    const body = res.getBody();
+    expect(res.getStatus()).to.equal(200);
+    if (body.status !== "done") return;
+    expect(body.findings).to.have.length(2);
+    expect(body.findings.map((f) => [f.path, f.line, f.ruleId])).to.deep.equal([
+      ["a.ts", 1, "MOCK-007"],
+      ["a.ts", 1, "MOCK-008"]
+    ]);
+  });
+}

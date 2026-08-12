@@ -1,0 +1,22 @@
+meta {
+  name: Poll Cerebras review
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/reviews/{{llmJobId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+tests {
+  test("LLM job reaches a valid state", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(["queued", "running", "done", "failed"]).to.include(res.getBody().status);
+  });
+}

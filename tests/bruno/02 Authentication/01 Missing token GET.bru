@@ -1,0 +1,21 @@
+meta {
+  name: Missing token GET
+  type: http
+  seq: 1
+  tags: [
+    auth
+  ]
+}
+
+get {
+  url: {{baseUrl}}/v1/reviews/anything
+  body: none
+  auth: none
+}
+
+tests {
+  test("protected GET rejects a missing token", function () {
+    expect(res.getStatus()).to.equal(401);
+    expect(res.getBody().error.code).to.equal("unauthorized");
+  });
+}

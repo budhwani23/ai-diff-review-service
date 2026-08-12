@@ -1,0 +1,27 @@
+meta {
+  name: Missing token POST
+  type: http
+  seq: 3
+  tags: [
+    auth
+  ]
+}
+
+post {
+  url: {{baseUrl}}/v1/reviews
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "diff": "--- a/auth.js\n+++ b/auth.js\n@@ -0,0 +1 @@\n+console.log(1);\n"
+  }
+}
+
+tests {
+  test("protected POST rejects a missing token", function () {
+    expect(res.getStatus()).to.equal(401);
+    expect(res.getBody().error.code).to.equal("unauthorized");
+  });
+}

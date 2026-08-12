@@ -1,0 +1,26 @@
+meta {
+  name: Stream mock review
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/v1/reviews/{{jobId}}/stream
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+headers {
+  Accept: text/event-stream
+}
+
+tests {
+  test("returns an SSE stream", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getHeader("content-type")).to.include("text/event-stream");
+  });
+}
