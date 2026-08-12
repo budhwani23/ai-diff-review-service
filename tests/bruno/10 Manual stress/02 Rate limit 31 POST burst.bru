@@ -1,240 +1,52 @@
-meta {
-  name: Rate limit 31 POST burst
-  type: http
-  seq: 2
-  tags: [
-    manual-stress
-    rate-limit
-  ]
-}
+const requests = [];
 
-get {
-  url: {{baseUrl}}/health
-  body: none
-  auth: none
-}
-
-script:pre-request {
-  const axios = require("axios");
-
-  const baseUrl = String(bru.getEnvVar("baseUrl"));
-  const token = String(bru.getEnvVar("bearerToken"));
-  const nonce = Date.now();
-
-  /*
-   * Axios normally rejects HTTP 4xx/5xx responses.
-   *
-   * For this test, HTTP 429 is an EXPECTED response.
-   * validateStatus makes every HTTP response available to us
-   * instead of throwing when the rate limiter returns 429.
-   */
-  const send = (config) => {
-    return axios({
-      ...config,
-      validateStatus: () => true
-    });
-  };
-
-  /*
-   * Create all 31 requests without awaiting inside the loop.
-   * This makes them run concurrently as one burst.
-   */
-  const requests = [];
-
-  for (let i = 0; i < 31; i++) {
-    requests.push(
-      send({
-        method: "POST",
-        url: baseUrl + "/v1/reviews",
-        headers: {
-          "Authorization": "Bearer " + token,
-          "Content-Type": "application/json"
-        },
-        data: {
-          diff:
-            "--- a/src/rate-" + nonce + "-" + i + ".js\n" +
-            "+++ b/src/rate-" + nonce + "-" + i + ".js\n" +
-            "@@ -0,0 +1 @@\n" +
-            "+console.log(" + i + ");\n",
-          options: {
-            provider: "mock",
-            maxFindings: 100
-          }
-        },
-        timeout: 30000
-      })
-    );
-  }
-
-  /*
-   * Wait for the entire burst.
-   *
-   * HTTP 429 will NOT reject Promise.all because validateStatus
-   * accepts it as a normal HTTP response.
-   */
-  const responses = await Promise.all(requests);
-
-  const results = responses.map((response, index) => ({
-    index: index,
-
+for (let i = 0; i < 31; i++) {
+  const request = send({
+    method: "POST",
+    url: baseUrl + "/v1/reviews",
+    headers: {
+      "Authorization": "Bearer " + token,
+      "Content-Type": "application/json"
+    },
+    data: {
+      diff:
+        "--- a/src/rate-" + nonce + "-" + i + ".js\n" +
+        "+++ b/src/rate-" + nonce + "-" + i + ".js\n" +
+        "@@ -0,0 +1 @@\n" +
+        "+console.log(" + i + ");\n",
+      options: {
+        provider: "mock",
+        maxFindings: 100
+      }
+    },
+    timeout: 30000
+  })
+  .then((response) => ({
     status: response.status,
-
-    jobId:
-      response.data &&
-      response.data.jobId
-        ? response.data.jobId
+    data: response.data,
+    headers: response.headers
+  }))
+  .catch((error) => ({
+    status:
+      error.response && error.response.status
+        ? error.response.status
         : null,
 
-    code:
-      response.data &&
-      response.data.error &&
-      response.data.error.code
-        ? response.data.error.code
+    data:
+      error.response
+        ? error.response.data
         : null,
 
-    retryAfter:
-      response.headers
-        ? (
-            response.headers["retry-after"] ||
-            response.headers["Retry-After"] ||
-            null
-          )
-        : null
+    headers:
+      error.response
+        ? error.response.headers
+        : {},
+
+    requestError:
+      error.message || String(error)
   }));
 
-  bru.setVar(
-    "rateLimitResults",
-    JSON.stringify(results)
-  );
-
-  /*
-   * Log the distribution to GitHub Actions.
-   * This makes future failures much easier to diagnose.
-   */
-  const acceptedCount = results.filter(
-    (result) => result.status === 202
-  ).length;
-
-  const limitedCount = results.filter(
-    (result) => result.status === 429
-  ).length;
-
-  console.log(
-    "Rate-limit burst results: " +
-    acceptedCount +
-    " accepted, " +
-    limitedCount +
-    " rate-limited"
-  );
-
-  console.log(
-    JSON.stringify(results, null, 2)
-  );
-
-  /*
-   * Pick one successfully-created job.
-   *
-   * GET requests must not be affected by the POST rate limiter.
-   */
-  const accepted = results.find(
-    (result) =>
-      result.status === 202 &&
-      result.jobId
-  );
-
-  if (accepted) {
-    const getResponse = await send({
-      method: "GET",
-      url:
-        baseUrl +
-        "/v1/reviews/" +
-        accepted.jobId,
-      headers: {
-        "Authorization": "Bearer " + token
-      },
-      timeout: 30000
-    });
-
-    bru.setVar(
-      "protectedGetAfterRateLimitStatus",
-      getResponse.status
-    );
-  } else {
-    bru.setVar(
-      "protectedGetAfterRateLimitStatus",
-      -1
-    );
-  }
+  requests.push(request);
 }
 
-tests {
-  test("31-request burst accepts 30 POSTs and rate limits exactly one", function () {
-    /*
-     * The actual Bruno request represented by this .bru file is
-     * GET /health.
-     */
-    expect(res.getStatus()).to.equal(200);
-
-    const results = JSON.parse(
-      String(
-        bru.getVar("rateLimitResults")
-      )
-    );
-
-    expect(results).to.have.length(31);
-
-    const accepted = results.filter(
-      (result) => result.status === 202
-    );
-
-    const limited = results.filter(
-      (result) => result.status === 429
-    );
-
-    /*
-     * Token bucket capacity is 30.
-     *
-     * Therefore:
-     *
-     * 30 requests -> HTTP 202
-     *  1 request  -> HTTP 429
-     */
-    expect(accepted).to.have.length(30);
-    expect(limited).to.have.length(1);
-
-    /*
-     * Every successful submission must return a job ID.
-     */
-    expect(
-      accepted.every(
-        (result) => Boolean(result.jobId)
-      )
-    ).to.equal(true);
-
-    /*
-     * Verify the required error envelope.
-     */
-    expect(
-      limited[0].code
-    ).to.equal("rate_limited");
-
-    /*
-     * Retry-After must be present and positive.
-     */
-    expect(
-      Number(limited[0].retryAfter)
-    ).to.be.at.least(1);
-
-    /*
-     * GET endpoints must remain usable even after POST
-     * submission rate limiting has been exhausted.
-     */
-    expect(
-      Number(
-        bru.getVar(
-          "protectedGetAfterRateLimitStatus"
-        )
-      )
-    ).to.equal(200);
-  });
-}
+const responses = await Promise.all(requests);

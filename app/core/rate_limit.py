@@ -1,6 +1,7 @@
 import asyncio
 import math
 import time
+from collections import deque
 from typing import Annotated
 
 from fastapi import Depends, Request
@@ -8,24 +9,41 @@ from fastapi import Depends, Request
 from app.core.errors import ApiError
 
 
-class TokenBucket:
-    def __init__(self, capacity: int, refill_per_second: float) -> None:
-        self.capacity = float(capacity)
-        self.refill_per_second = refill_per_second
-        self.tokens = float(capacity)
-        self.updated_at = time.monotonic()
+class SlidingWindowRateLimiter:
+    def __init__(
+        self,
+        limit: int,
+        window_seconds: float = 60.0,
+    ) -> None:
+        self.limit = limit
+        self.window_seconds = window_seconds
+        self.timestamps: deque[float] = deque()
         self.lock = asyncio.Lock()
 
     async def consume(self) -> None:
         async with self.lock:
             now = time.monotonic()
-            elapsed = now - self.updated_at
-            self.tokens = min(self.capacity, self.tokens + elapsed * self.refill_per_second)
-            self.updated_at = now
-            if self.tokens >= 1:
-                self.tokens -= 1
+            cutoff = now - self.window_seconds
+
+            # Remove requests that are outside the rolling window.
+            while self.timestamps and self.timestamps[0] <= cutoff:
+                self.timestamps.popleft()
+
+            # Allow up to `limit` requests inside the window.
+            if len(self.timestamps) < self.limit:
+                self.timestamps.append(now)
                 return
-            retry_after = max(1, math.ceil((1 - self.tokens) / self.refill_per_second))
+
+            # Oldest request determines when another request can be accepted.
+            oldest = self.timestamps[0]
+
+            retry_after = max(
+                1,
+                math.ceil(
+                    self.window_seconds - (now - oldest)
+                ),
+            )
+
             raise ApiError(
                 429,
                 "rate_limited",
@@ -38,4 +56,7 @@ async def enforce_rate_limit(request: Request) -> None:
     await request.app.state.rate_limiter.consume()
 
 
-RateLimitDep = Annotated[None, Depends(enforce_rate_limit)]
+RateLimitDep = Annotated[
+    None,
+    Depends(enforce_rate_limit),
+]
